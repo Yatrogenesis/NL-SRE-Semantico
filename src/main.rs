@@ -15,7 +15,7 @@
 //! ## Autor
 //! Francisco Molina-Burgos, Avermex Research Division
 
-use nl_sre_semantico::{SemanticDisambiguator, SpanishDictionary, Config, info};
+use nl_sre_semantico::{SemanticDisambiguator, SpanishDictionary, Config, info, CommandParser};
 use std::env;
 use std::path::Path;
 
@@ -186,6 +186,85 @@ fn main() {
             println!("  - Conjugaciones: {}", stats.total_conjugations);
         }
     }
+
+    println!();
+    println!("═══════════════════════════════════════════════════════════════════");
+    println!("DEMOSTRACIÓN 5: Parser Semántico → Predicados PIRS");
+    println!("═══════════════════════════════════════════════════════════════════");
+    println!();
+
+    let parser = CommandParser::new();
+
+    // Ejemplo canónico del documento de diseño
+    let command = "Requiero que me diseñes un producto que me ayude a sustituir al propofol \
+                   y tiene que ser súper seguro y mucho mejor que él, más barato";
+
+    println!("ENTRADA (Lenguaje Natural):");
+    println!("  \"{}\"", command);
+    println!();
+
+    let parsed = parser.parse(command);
+
+    println!("ANÁLISIS SEMÁNTICO:");
+    println!("  Acción:      {:?}", parsed.action);
+    println!("  Solicitante: {:?}", parsed.requester);
+    println!("  Ejecutor:    {:?}", parsed.executor);
+    println!("  Target:      {:?}", parsed.target);
+    println!("  Confianza:   {:.0}%", parsed.confidence * 100.0);
+    println!();
+
+    if let Some(goal) = &parsed.goal {
+        println!("  META/PROPÓSITO:");
+        println!("    Acción: {}", goal.action);
+        println!("    Target: {}", goal.target);
+        println!();
+    }
+
+    if !parsed.constraints.is_empty() {
+        println!("  RESTRICCIONES EXTRAÍDAS:");
+        for c in &parsed.constraints {
+            println!("    • {} {:?} → {:?}", c.attribute, c.constraint_type, c.value);
+        }
+        println!();
+    }
+
+    if !parsed.verbs.is_empty() {
+        println!("  VERBOS ANALIZADOS:");
+        for v in &parsed.verbs {
+            println!("    • \"{}\" ({}) → {:?} persona, modo {:?}",
+                v.conjugated, v.lemma, v.person, v.mode);
+        }
+        println!();
+    }
+
+    println!("SALIDA PIRS (Predicados Prolog):");
+    println!("─────────────────────────────────────────");
+    println!("{}", parsed.to_prolog_string());
+    println!("─────────────────────────────────────────");
+
+    // Segundo ejemplo: imperativo directo
+    println!();
+    println!("EJEMPLO 2: Imperativo directo");
+    println!();
+
+    let command2 = "Ayúdame a encontrar una alternativa más económica";
+    println!("ENTRADA: \"{}\"", command2);
+    let parsed2 = parser.parse(command2);
+    println!();
+    println!("SALIDA PIRS:");
+    println!("{}", parsed2.to_prolog_string());
+
+    // Tercer ejemplo: búsqueda
+    println!();
+    println!("EJEMPLO 3: Búsqueda con restricciones");
+    println!();
+
+    let command3 = "Busco información sobre compuestos más seguros que el fentanilo";
+    println!("ENTRADA: \"{}\"", command3);
+    let parsed3 = parser.parse(command3);
+    println!();
+    println!("SALIDA PIRS:");
+    println!("{}", parsed3.to_prolog_string());
 
     println!();
     println!("╔══════════════════════════════════════════════════════════════════╗");
