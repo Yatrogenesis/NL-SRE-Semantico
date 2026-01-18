@@ -1,0 +1,27 @@
+[package]
+name = "nl-sre-semantico"
+version = "0.1.0"
+edition = "2021"
+authors = ["Francisco Molina-Burgos <fmolina@avermex.com>"]
+description = "Motor de Desambiguación Semántica Probabilística para Español"
+license = "MIT"
+repository = "https://github.com/Yatrogenesis/NL-SRE-Semantico"
+
+[dependencies]
+# Zero external dependencies - pure Rust implementation
+
+[dev-dependencies]
+# Tests only
+
+[features]
+default = []
+simd = []  # Future: SIMD optimizations for UNIFORM kernel
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"
+
+[profile.dev]
+opt-level = 1
