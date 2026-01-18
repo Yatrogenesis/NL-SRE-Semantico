@@ -18,6 +18,7 @@
 use nl_sre_semantico::{SemanticDisambiguator, SpanishDictionary, Config, info, CommandParser};
 use std::env;
 use std::path::Path;
+use std::io::{self, Write};
 
 fn main() {
     println!("╔══════════════════════════════════════════════════════════════════╗");
@@ -28,9 +29,10 @@ fn main() {
     println!("{}", info());
     println!();
 
-    // Check for --full flag to load complete dictionary
+    // Check for flags
     let args: Vec<String> = env::args().collect();
     let use_full_dictionary = args.iter().any(|a| a == "--full" || a == "-f");
+    let interactive_mode = args.iter().any(|a| a == "--repl" || a == "-i" || a == "--interactive");
 
     // Create motor
     let mut motor = if use_full_dictionary {
@@ -40,6 +42,12 @@ fn main() {
         println!();
         SemanticDisambiguator::new()
     };
+
+    // Interactive REPL mode
+    if interactive_mode {
+        run_repl();
+        return;
+    }
 
     println!("═══════════════════════════════════════════════════════════════════");
     println!("DEMOSTRACIÓN 1: Desambiguación con contexto arquitectónico");
@@ -307,6 +315,118 @@ fn load_full_motor() -> SemanticDisambiguator {
     println!("No se encontró diccionario completo, usando básico");
     println!();
     SemanticDisambiguator::new()
+}
+
+/// REPL interactivo para testing del parser semántico
+fn run_repl() {
+    println!("═══════════════════════════════════════════════════════════════════");
+    println!("     NL-SRE-SEMANTICO :: REPL INTERACTIVO");
+    println!("     Escribe comandos en español → genera predicados PIRS");
+    println!("═══════════════════════════════════════════════════════════════════");
+    println!();
+    println!("Comandos especiales:");
+    println!("  /salir, /exit, /q  - Terminar");
+    println!("  /ayuda, /help      - Mostrar ayuda");
+    println!("  /verbose           - Toggle modo detallado");
+    println!();
+
+    let parser = CommandParser::new();
+    let mut verbose = false;
+
+    loop {
+        // Prompt
+        print!("NL> ");
+        io::stdout().flush().unwrap();
+
+        // Read input
+        let mut input = String::new();
+        match io::stdin().read_line(&mut input) {
+            Ok(0) => break, // EOF
+            Ok(_) => {}
+            Err(_) => break,
+        }
+
+        let input = input.trim();
+        if input.is_empty() {
+            continue;
+        }
+
+        // Handle special commands
+        match input.to_lowercase().as_str() {
+            "/salir" | "/exit" | "/q" | "salir" | "exit" => {
+                println!("¡Hasta luego!");
+                break;
+            }
+            "/ayuda" | "/help" => {
+                print_repl_help();
+                continue;
+            }
+            "/verbose" => {
+                verbose = !verbose;
+                println!("Modo verbose: {}", if verbose { "ON" } else { "OFF" });
+                continue;
+            }
+            _ => {}
+        }
+
+        // Parse the command
+        let parsed = parser.parse(input);
+
+        // Output
+        if verbose {
+            println!();
+            println!("┌─ ANÁLISIS ─────────────────────────────────────────────────────");
+            println!("│ Acción:      {:?}", parsed.action);
+            println!("│ Target:      {:?}", parsed.target);
+            println!("│ Confianza:   {:.0}%", parsed.confidence * 100.0);
+            if let Some(goal) = &parsed.goal {
+                println!("│ Meta:        {}({})", goal.action, goal.target);
+            }
+            if !parsed.constraints.is_empty() {
+                println!("│ Restricciones:");
+                for c in &parsed.constraints {
+                    println!("│   • {} {:?}", c.attribute, c.constraint_type);
+                }
+            }
+            if !parsed.verbs.is_empty() {
+                println!("│ Verbos:");
+                for v in &parsed.verbs {
+                    println!("│   • {} → {:?} pers, {:?}", v.conjugated, v.person, v.mode);
+                }
+            }
+            println!("└─────────────────────────────────────────────────────────────────");
+        }
+
+        println!();
+        println!("PIRS>");
+        println!("{}", parsed.to_prolog_string());
+    }
+}
+
+/// Muestra ayuda del REPL
+fn print_repl_help() {
+    println!();
+    println!("╔══════════════════════════════════════════════════════════════════╗");
+    println!("║                    NL-SRE-SEMANTICO AYUDA                        ║");
+    println!("╠══════════════════════════════════════════════════════════════════╣");
+    println!("║ Este sistema convierte español natural → predicados PIRS        ║");
+    println!("╠══════════════════════════════════════════════════════════════════╣");
+    println!("║ EJEMPLOS DE ENTRADA:                                            ║");
+    println!("║   • Requiero un producto que sustituya al propofol              ║");
+    println!("║   • Ayúdame a encontrar alternativas más baratas                ║");
+    println!("║   • Busco información sobre compuestos seguros                  ║");
+    println!("║   • Necesito algo mejor que el fentanilo                        ║");
+    println!("║   • Diseña una molécula más estable                             ║");
+    println!("╠══════════════════════════════════════════════════════════════════╣");
+    println!("║ VERBOS RECONOCIDOS:                                             ║");
+    println!("║   Solicitud: requiero, quiero, necesito, busco, pido            ║");
+    println!("║   Delegación: ayúdame, diseña, crea, encuentra, analiza         ║");
+    println!("╠══════════════════════════════════════════════════════════════════╣");
+    println!("║ RESTRICCIONES:                                                  ║");
+    println!("║   Superlativo: súper, muy, extremadamente                       ║");
+    println!("║   Comparativo: más X que, mejor que, más barato                 ║");
+    println!("╚══════════════════════════════════════════════════════════════════╝");
+    println!();
 }
 
 #[cfg(test)]
