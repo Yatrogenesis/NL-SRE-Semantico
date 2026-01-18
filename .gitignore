@@ -2,3 +2,10 @@
 Cargo.lock
 *.pdb
 *.exe
+
+# Data files (download separately - see README)
+/data/rae/*.json
+/data/rae/*.csv
+/data/rae/*.parquet
+/data/latam/*.json
+/data/latam/*.parquet

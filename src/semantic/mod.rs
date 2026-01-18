@@ -18,7 +18,8 @@ pub struct SemanticDB {
     /// Temas conocidos
     themes: HashMap<String, ThemeInfo>,
 
-    /// Relaciones semánticas (hiponimia, sinonimia, etc.)
+    /// Relaciones semánticas (hiponimia, sinonimia, etc.) - para expansión futura
+    #[allow(dead_code)]
     relations: Vec<SemanticRelation>,
 
     /// Reglas de compatibilidad tema-categoría

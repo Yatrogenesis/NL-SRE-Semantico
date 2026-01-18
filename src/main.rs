@@ -2,14 +2,22 @@
 //!
 //! Demostración del Motor de Desambiguación Semántica Probabilística
 //!
-//! ## Ejemplo principal
-//! "Visité el Coliseo romano en smor"
-//! → "Visité el Coliseo romano en Roma"
+//! ## Uso
+//! ```
+//! cargo run --release
+//! ```
+//!
+//! ## Con diccionario completo RAE
+//! ```
+//! cargo run --release -- --full
+//! ```
 //!
 //! ## Autor
 //! Francisco Molina-Burgos, Avermex Research Division
 
-use nl_sre_semantico::{SemanticDisambiguator, Config, info};
+use nl_sre_semantico::{SemanticDisambiguator, SpanishDictionary, Config, info};
+use std::env;
+use std::path::Path;
 
 fn main() {
     println!("╔══════════════════════════════════════════════════════════════════╗");
@@ -20,8 +28,18 @@ fn main() {
     println!("{}", info());
     println!();
 
-    // Crear motor
-    let mut motor = SemanticDisambiguator::new();
+    // Check for --full flag to load complete dictionary
+    let args: Vec<String> = env::args().collect();
+    let use_full_dictionary = args.iter().any(|a| a == "--full" || a == "-f");
+
+    // Create motor
+    let mut motor = if use_full_dictionary {
+        load_full_motor()
+    } else {
+        println!("Usando diccionario básico (para diccionario completo: --full)");
+        println!();
+        SemanticDisambiguator::new()
+    };
 
     println!("═══════════════════════════════════════════════════════════════════");
     println!("DEMOSTRACIÓN 1: Desambiguación con contexto arquitectónico");
@@ -157,10 +175,59 @@ fn main() {
     println!("Tamaño del diccionario: {} palabras", motor.dictionary_size());
     println!("Configuración actual: α={:.2}, β={:.2}, γ={:.2}",
         motor.config().alpha, motor.config().beta, motor.config().gamma);
+
+    // Show dictionary stats if external dictionary loaded
+    if motor.has_external_dictionary() {
+        if let Some(stats) = motor.dictionary_stats() {
+            println!();
+            println!("Estadísticas del diccionario RAE/LATAM:");
+            println!("  - Total entradas: {}", stats.total_entries);
+            println!("  - Entradas RAE: {}", stats.rae_entries);
+            println!("  - Conjugaciones: {}", stats.total_conjugations);
+        }
+    }
+
     println!();
     println!("╔══════════════════════════════════════════════════════════════════╗");
     println!("║                    FIN DE LA DEMOSTRACIÓN                        ║");
     println!("╚══════════════════════════════════════════════════════════════════╝");
+}
+
+/// Carga el motor con diccionario completo RAE
+fn load_full_motor() -> SemanticDisambiguator {
+    println!("Cargando diccionario completo RAE/LATAM...");
+    println!();
+
+    // Try different data paths
+    let possible_paths = [
+        "data",
+        "./data",
+        "C:\\Users\\pakom\\NL-SRE-Semantico\\data",
+    ];
+
+    for data_path in possible_paths {
+        let path = Path::new(data_path);
+        if path.exists() {
+            match SpanishDictionary::load_from_directory(path) {
+                Ok(dict) => {
+                    println!("Diccionario cargado exitosamente desde: {}", data_path);
+                    println!("  - Palabras válidas: {}", dict.len());
+                    println!("  - Entradas RAE: {}", dict.stats.rae_entries);
+                    println!("  - Conjugaciones: {}", dict.stats.total_conjugations);
+                    println!();
+                    return SemanticDisambiguator::with_dictionary(dict);
+                }
+                Err(e) => {
+                    println!("Error cargando desde {}: {}", data_path, e);
+                }
+            }
+        }
+    }
+
+    // Fallback to basic dictionary
+    println!("No se encontró diccionario completo, usando básico");
+    println!();
+    SemanticDisambiguator::new()
 }
 
 #[cfg(test)]
@@ -226,5 +293,17 @@ mod integration_tests {
         // Con 95% peso en caracteres, el candidato con mejor match de
         // caracteres debería ganar independientemente del contexto
         assert!(!result.corrections.is_empty());
+    }
+
+    #[test]
+    fn test_load_full_dictionary() {
+        // This test will only pass if data directory exists
+        let data_path = Path::new("data");
+        if data_path.exists() {
+            let dict = SpanishDictionary::load_from_directory(data_path);
+            assert!(dict.is_ok());
+            let dict = dict.unwrap();
+            assert!(dict.len() > 0);
+        }
     }
 }

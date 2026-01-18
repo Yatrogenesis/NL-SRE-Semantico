@@ -24,6 +24,7 @@ pub mod grammar;
 pub mod semantic;
 pub mod disambiguator;
 pub mod chars;
+pub mod dictionary;
 
 // Re-exports principales
 pub use disambiguator::SemanticDisambiguator;
@@ -31,6 +32,7 @@ pub use uniform::UnifyContext;
 pub use applog::SharedContext;
 pub use grammar::SpanishGrammar;
 pub use semantic::{SemanticDB, SemanticCategory};
+pub use dictionary::{SpanishDictionary, DictionaryEntry};
 
 /// Resultado de procesamiento de una oración
 #[derive(Debug, Clone)]

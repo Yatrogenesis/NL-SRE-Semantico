@@ -100,6 +100,7 @@ pub struct Goal {
 
 /// Cambio en el contexto (para historial/rollback)
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 enum ContextChange {
     BindingAdded(String),
     BindingModified(String, SharedValue),

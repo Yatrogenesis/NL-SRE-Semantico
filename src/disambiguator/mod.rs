@@ -8,6 +8,7 @@
 //! - CharMatcher para candidatos por caracteres
 //! - SpanishGrammar para validación gramatical
 //! - SemanticDB para análisis de contexto
+//! - SpanishDictionary para diccionario completo RAE/LATAM
 
 use crate::{Config, ProcessedSentence, Correction, CorrectionExplanation};
 use crate::chars::CharMatcher;
@@ -15,6 +16,7 @@ use crate::grammar::SpanishGrammar;
 use crate::semantic::SemanticDB;
 use crate::applog::{SharedContext, Source};
 use crate::uniform::UnifyValue;
+use crate::dictionary::SpanishDictionary;
 
 /// Motor de desambiguación semántica
 #[derive(Debug)]
@@ -33,6 +35,9 @@ pub struct SemanticDisambiguator {
 
     /// Contexto compartido (APPLOG)
     shared_context: SharedContext,
+
+    /// Diccionario completo (opcional, para carga desde archivo)
+    dictionary: Option<SpanishDictionary>,
 }
 
 impl SemanticDisambiguator {
@@ -44,6 +49,7 @@ impl SemanticDisambiguator {
             grammar: SpanishGrammar::new(),
             semantic_db: SemanticDB::new(),
             shared_context: SharedContext::new(),
+            dictionary: None,
         };
 
         // Cargar diccionario inicial
@@ -57,6 +63,109 @@ impl SemanticDisambiguator {
         let mut d = Self::new();
         d.config = config;
         d
+    }
+
+    /// Crea con diccionario externo (RAE/LATAM)
+    pub fn with_dictionary(dict: SpanishDictionary) -> Self {
+        let mut disambiguator = Self {
+            config: Config::default(),
+            char_matcher: CharMatcher::new(),
+            grammar: SpanishGrammar::new(),
+            semantic_db: SemanticDB::new(),
+            shared_context: SharedContext::new(),
+            dictionary: Some(dict),
+        };
+
+        // Cargar palabras del diccionario al CharMatcher
+        disambiguator.load_from_spanish_dictionary();
+
+        // Cargar también palabras gramaticales básicas
+        disambiguator.load_grammar_words();
+
+        disambiguator
+    }
+
+    /// Crea con diccionario y configuración
+    pub fn with_dictionary_and_config(dict: SpanishDictionary, config: Config) -> Self {
+        let mut d = Self::with_dictionary(dict);
+        d.config = config;
+        d
+    }
+
+    /// Carga palabras desde SpanishDictionary al CharMatcher
+    fn load_from_spanish_dictionary(&mut self) {
+        if let Some(ref dict) = self.dictionary {
+            // Cargar todas las palabras válidas al CharMatcher
+            let words: Vec<String> = dict.all_words().cloned().collect();
+            self.char_matcher.load_dictionary(words.iter().map(|s| s.as_str()));
+
+            // Añadir sustantivos a la gramática para los que tenemos información
+            use crate::grammar::{NounInfo, Gender, Number, NounCategory};
+            use crate::dictionary::PartOfSpeech;
+
+            for word in dict.all_words() {
+                for entry in dict.get_entries(word) {
+                    // Si es sustantivo, añadirlo a la gramática
+                    if entry.pos.contains(&PartOfSpeech::Noun) {
+                        // Inferir género del artículo en definiciones o de la terminación
+                        let gender = if word.ends_with('a') || word.ends_with("ión") || word.ends_with("dad") {
+                            Gender::Feminine
+                        } else {
+                            Gender::Masculine
+                        };
+
+                        self.grammar.add_noun(&entry.original, NounInfo {
+                            gender,
+                            number: Number::Singular,
+                            category: NounCategory::Thing,
+                            can_be_subject: true,
+                            can_be_object: true,
+                        });
+                    }
+
+                    // Si es adjetivo, añadirlo
+                    if entry.pos.contains(&PartOfSpeech::Adjective) {
+                        self.grammar.add_adjective(&entry.original);
+                    }
+                }
+            }
+        }
+    }
+
+    /// Carga palabras gramaticales básicas (artículos, preposiciones, etc.)
+    fn load_grammar_words(&mut self) {
+        let grammar_words = [
+            "el", "la", "los", "las", "un", "una", "unos", "unas",
+            "yo", "tú", "él", "ella", "nosotros", "me", "te", "le", "se",
+            "a", "ante", "bajo", "con", "contra", "de", "desde", "en",
+            "entre", "hacia", "hasta", "para", "por", "según", "sin",
+            "sobre", "tras", "y", "e", "o", "u", "pero", "sino", "que",
+            "porque", "aunque", "si", "cuando", "donde", "como",
+            "muy", "bien", "mal", "mucho", "poco", "siempre", "nunca",
+            "ya", "todavía", "aquí", "allí", "ahora", "después", "antes",
+            "también", "tampoco", "sí", "no",
+        ];
+
+        self.char_matcher.load_dictionary(grammar_words.iter().copied());
+    }
+
+    /// Obtiene frecuencia de una palabra (si hay diccionario)
+    pub fn word_frequency(&self, word: &str) -> u64 {
+        if let Some(ref dict) = self.dictionary {
+            dict.frequency(word)
+        } else {
+            0
+        }
+    }
+
+    /// Verifica si el motor tiene diccionario externo cargado
+    pub fn has_external_dictionary(&self) -> bool {
+        self.dictionary.is_some()
+    }
+
+    /// Estadísticas del diccionario
+    pub fn dictionary_stats(&self) -> Option<&crate::dictionary::DictionaryStats> {
+        self.dictionary.as_ref().map(|d| &d.stats)
     }
 
     /// Carga diccionario por defecto

@@ -177,7 +177,8 @@ pub struct MessageBus {
     /// Contador de correlation IDs
     next_correlation_id: u64,
 
-    /// Cola de mensajes pendientes
+    /// Cola de mensajes pendientes (para procesamiento asíncrono futuro)
+    #[allow(dead_code)]
     pending: Vec<Message>,
 }
 

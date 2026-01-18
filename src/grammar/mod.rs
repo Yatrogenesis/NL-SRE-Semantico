@@ -725,8 +725,9 @@ impl SpanishGrammar {
     }
 }
 
-/// Tipo de token identificado
+/// Tipo de token identificado (campos usados en análisis futuro)
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 enum TokenType {
     Verb(VerbInfo),
     Noun(NounInfo),
