@@ -45,7 +45,11 @@ fn main() {
 
     // Interactive REPL mode
     if interactive_mode {
-        run_repl();
+        if use_full_dictionary {
+            run_repl_with_dictionary();
+        } else {
+            run_repl_basic();
+        }
         return;
     }
 
@@ -317,11 +321,65 @@ fn load_full_motor() -> SemanticDisambiguator {
     SemanticDisambiguator::new()
 }
 
-/// REPL interactivo para testing del parser semántico
-fn run_repl() {
+/// REPL interactivo con diccionario completo (218K palabras)
+fn run_repl_with_dictionary() {
     println!("═══════════════════════════════════════════════════════════════════");
-    println!("     NL-SRE-SEMANTICO :: REPL INTERACTIVO");
+    println!("     NL-SRE-SEMANTICO :: REPL INTERACTIVO (DICCIONARIO COMPLETO)");
     println!("     Escribe comandos en español → genera predicados PIRS");
+    println!("═══════════════════════════════════════════════════════════════════");
+    println!();
+
+    // Cargar diccionario
+    println!("Cargando diccionario RAE/LATAM...");
+    let possible_paths = ["data", "./data", "C:\\Users\\pakom\\NL-SRE-Semantico\\data"];
+
+    let mut parser = None;
+
+    for data_path in possible_paths {
+        let path = Path::new(data_path);
+        if path.exists() {
+            match SpanishDictionary::load_from_directory(path) {
+                Ok(dict) => {
+                    println!("  Diccionario: {} palabras", dict.len());
+                    let p = CommandParser::with_dictionary(&dict);
+                    println!("  Verbos de solicitud: {}", p.stats.request_verbs_count);
+                    println!("  Verbos de acción: {}", p.stats.action_verbs_count);
+                    println!("  Conjugaciones: {}", p.stats.conjugations_count);
+                    parser = Some(p);
+                    break;
+                }
+                Err(e) => {
+                    println!("  Error: {}", e);
+                }
+            }
+        }
+    }
+
+    let parser = match parser {
+        Some(p) => p,
+        None => {
+            println!("  No se encontró diccionario, usando básico");
+            CommandParser::new()
+        }
+    };
+
+    println!();
+    println!("Comandos especiales:");
+    println!("  /salir, /exit, /q  - Terminar");
+    println!("  /ayuda, /help      - Mostrar ayuda");
+    println!("  /verbose           - Toggle modo detallado");
+    println!("  /stats             - Mostrar estadísticas del parser");
+    println!();
+
+    run_repl_loop(parser);
+}
+
+/// REPL interactivo básico (sin diccionario externo)
+fn run_repl_basic() {
+    println!("═══════════════════════════════════════════════════════════════════");
+    println!("     NL-SRE-SEMANTICO :: REPL INTERACTIVO (BÁSICO)");
+    println!("     Escribe comandos en español → genera predicados PIRS");
+    println!("     (Usa --full --repl para diccionario completo)");
     println!("═══════════════════════════════════════════════════════════════════");
     println!();
     println!("Comandos especiales:");
@@ -331,6 +389,11 @@ fn run_repl() {
     println!();
 
     let parser = CommandParser::new();
+    run_repl_loop(parser);
+}
+
+/// Loop principal del REPL
+fn run_repl_loop(parser: CommandParser) {
     let mut verbose = false;
 
     loop {
@@ -364,6 +427,17 @@ fn run_repl() {
             "/verbose" => {
                 verbose = !verbose;
                 println!("Modo verbose: {}", if verbose { "ON" } else { "OFF" });
+                continue;
+            }
+            "/stats" => {
+                println!();
+                println!("┌─ ESTADÍSTICAS DEL PARSER ────────────────────────────────────────");
+                println!("│ Verbos de solicitud: {}", parser.stats.request_verbs_count);
+                println!("│ Verbos de acción:    {}", parser.stats.action_verbs_count);
+                println!("│ Conjugaciones:       {}", parser.stats.conjugations_count);
+                println!("│ Desde diccionario:   {}", if parser.stats.from_dictionary { "Sí" } else { "No" });
+                println!("└────────────────────────────────────────────────────────────────────");
+                println!();
                 continue;
             }
             _ => {}

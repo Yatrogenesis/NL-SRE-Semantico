@@ -34,7 +34,7 @@ pub use applog::SharedContext;
 pub use grammar::SpanishGrammar;
 pub use semantic::{SemanticDB, SemanticCategory};
 pub use dictionary::{SpanishDictionary, DictionaryEntry};
-pub use command_parser::{CommandParser, ParsedCommand};
+pub use command_parser::{CommandParser, ParsedCommand, ParserStats};
 
 /// Resultado de procesamiento de una oración
 #[derive(Debug, Clone)]

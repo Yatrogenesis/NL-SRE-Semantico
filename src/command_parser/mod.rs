@@ -16,7 +16,8 @@
 //! ## Autor
 //! Francisco Molina-Burgos, Avermex Research Division
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
+use crate::dictionary::{SpanishDictionary, PartOfSpeech};
 
 /// Comando parseado desde lenguaje natural
 #[derive(Debug, Clone)]
@@ -246,13 +247,29 @@ pub enum VerbSemanticRole {
     Other,
 }
 
-/// Parser de comandos en español
+/// Estadísticas del parser
+#[derive(Debug, Clone, Default)]
+pub struct ParserStats {
+    /// Verbos de solicitud cargados
+    pub request_verbs_count: usize,
+    /// Verbos de acción cargados
+    pub action_verbs_count: usize,
+    /// Conjugaciones de verbos cargadas
+    pub conjugations_count: usize,
+    /// Si se cargó desde diccionario externo
+    pub from_dictionary: bool,
+}
+
 #[derive(Debug)]
 pub struct CommandParser {
     /// Verbos de solicitud (1a persona)
     request_verbs: HashMap<String, (String, Formality)>,
     /// Verbos de acción (infinitivos y sus categorías)
     action_verbs: HashMap<String, ActionCategory>,
+    /// Todas las conjugaciones conocidas (conjugado → lema)
+    conjugations: HashMap<String, String>,
+    /// Palabras válidas del diccionario
+    valid_words: HashSet<String>,
     /// Indicadores de objeto indefinido
     indefinite_indicators: Vec<String>,
     /// Indicadores de superlativo
@@ -263,6 +280,12 @@ pub struct CommandParser {
     comparative_less: Vec<String>,
     /// Atributos comunes (seguro, barato, rápido, etc.)
     common_attributes: HashMap<String, String>,
+    /// Sustantivos conocidos (para mejor detección de targets)
+    known_nouns: HashSet<String>,
+    /// Frecuencias de palabras (para priorización)
+    frequencies: HashMap<String, u64>,
+    /// Estadísticas
+    pub stats: ParserStats,
 }
 
 /// Categoría de acción
@@ -278,20 +301,191 @@ pub enum ActionCategory {
 }
 
 impl CommandParser {
-    /// Crea un nuevo parser con vocabulario predefinido
+    /// Crea un nuevo parser con vocabulario predefinido (básico)
     pub fn new() -> Self {
         let mut parser = Self {
             request_verbs: HashMap::new(),
             action_verbs: HashMap::new(),
+            conjugations: HashMap::new(),
+            valid_words: HashSet::new(),
             indefinite_indicators: Vec::new(),
             superlative_indicators: Vec::new(),
             comparative_greater: Vec::new(),
             comparative_less: Vec::new(),
             common_attributes: HashMap::new(),
+            known_nouns: HashSet::new(),
+            frequencies: HashMap::new(),
+            stats: ParserStats::default(),
         };
 
         parser.load_vocabulary();
+        parser.update_stats();
         parser
+    }
+
+    /// Crea un parser enriquecido con el diccionario RAE/LATAM
+    pub fn with_dictionary(dict: &SpanishDictionary) -> Self {
+        let mut parser = Self::new();
+        parser.enrich_from_dictionary(dict);
+        parser.stats.from_dictionary = true;
+        parser.update_stats();
+        parser
+    }
+
+    /// Enriquece el vocabulario desde el diccionario
+    fn enrich_from_dictionary(&mut self, dict: &SpanishDictionary) {
+        // Cargar todas las palabras válidas
+        for word in dict.all_words() {
+            self.valid_words.insert(word.clone());
+        }
+
+        // Cargar conjugaciones
+        for word in dict.all_words() {
+            if let Some(lemma) = dict.get_lemma(word) {
+                if lemma != *word {
+                    self.conjugations.insert(word.clone(), lemma);
+                }
+            }
+        }
+
+        // Extraer sustantivos del diccionario
+        for word in dict.all_words() {
+            for entry in dict.get_entries(word) {
+                // Sustantivos
+                if entry.pos.contains(&PartOfSpeech::Noun) {
+                    self.known_nouns.insert(word.clone());
+                }
+
+                // Verbos - agregar como verbos de acción si no están ya
+                if entry.pos.contains(&PartOfSpeech::Verb) {
+                    if !self.action_verbs.contains_key(word) {
+                        // Categorizar por definición
+                        let category = self.categorize_verb_from_definition(&entry.definitions);
+                        self.action_verbs.insert(word.clone(), category);
+                    }
+                }
+
+                // Adjetivos como posibles atributos
+                if entry.pos.contains(&PartOfSpeech::Adjective) {
+                    if !self.common_attributes.contains_key(word) {
+                        // Inferir atributo desde la palabra
+                        let attr = self.infer_attribute_type(word, &entry.definitions);
+                        self.common_attributes.insert(word.clone(), attr);
+                    }
+                }
+            }
+
+            // Cargar frecuencias
+            let freq = dict.frequency(word);
+            if freq > 0 {
+                self.frequencies.insert(word.clone(), freq);
+            }
+        }
+
+        // Agregar conjugaciones de verbos de solicitud desde frequency data
+        self.expand_request_verb_conjugations(dict);
+    }
+
+    /// Expande los verbos de solicitud con todas sus conjugaciones
+    fn expand_request_verb_conjugations(&mut self, dict: &SpanishDictionary) {
+        // Lemas de verbos de solicitud
+        let request_lemmas: Vec<String> = self.request_verbs.values()
+            .map(|(lemma, _)| lemma.clone())
+            .collect();
+
+        // Buscar todas las conjugaciones de estos verbos
+        for word in dict.all_words() {
+            if let Some(lemma) = dict.get_lemma(word) {
+                for req_lemma in &request_lemmas {
+                    if lemma == *req_lemma && !self.request_verbs.contains_key(word) {
+                        // Determinar formalidad del lema original
+                        let formality = self.request_verbs.values()
+                            .find(|(l, _)| l == req_lemma)
+                            .map(|(_, f)| f.clone())
+                            .unwrap_or(Formality::Normal);
+
+                        self.request_verbs.insert(word.clone(), (lemma.clone(), formality));
+                    }
+                }
+            }
+        }
+    }
+
+    /// Categoriza un verbo basándose en sus definiciones
+    fn categorize_verb_from_definition(&self, definitions: &[String]) -> ActionCategory {
+        let text = definitions.join(" ").to_lowercase();
+
+        if text.contains("crear") || text.contains("producir") || text.contains("fabricar")
+           || text.contains("hacer") || text.contains("construir") {
+            ActionCategory::Create
+        } else if text.contains("buscar") || text.contains("encontrar") || text.contains("hallar") {
+            ActionCategory::Search
+        } else if text.contains("analizar") || text.contains("examinar") || text.contains("evaluar") {
+            ActionCategory::Analyze
+        } else if text.contains("explicar") || text.contains("describir") || text.contains("mostrar") {
+            ActionCategory::Explain
+        } else if text.contains("calcular") || text.contains("medir") || text.contains("computar") {
+            ActionCategory::Compute
+        } else if text.contains("cambiar") || text.contains("transformar") || text.contains("modificar") {
+            ActionCategory::Transform
+        } else {
+            ActionCategory::Other
+        }
+    }
+
+    /// Infiere el tipo de atributo desde un adjetivo
+    fn infer_attribute_type(&self, word: &str, definitions: &[String]) -> String {
+        let text = definitions.join(" ").to_lowercase();
+        let word_lower = word.to_lowercase();
+
+        // Por palabra
+        if word_lower.contains("segur") { return "safety".to_string(); }
+        if word_lower.contains("barat") || word_lower.contains("econom") || word_lower.contains("cost") {
+            return "cost".to_string();
+        }
+        if word_lower.contains("rapid") || word_lower.contains("veloz") || word_lower.contains("lent") {
+            return "speed".to_string();
+        }
+        if word_lower.contains("efic") { return "efficiency".to_string(); }
+        if word_lower.contains("estab") { return "stability".to_string(); }
+        if word_lower.contains("fuert") || word_lower.contains("potent") { return "strength".to_string(); }
+
+        // Por definición
+        if text.contains("precio") || text.contains("dinero") || text.contains("costo") {
+            return "cost".to_string();
+        }
+        if text.contains("peligro") || text.contains("riesgo") || text.contains("protección") {
+            return "safety".to_string();
+        }
+        if text.contains("tiempo") || text.contains("velocidad") {
+            return "speed".to_string();
+        }
+
+        "quality".to_string()
+    }
+
+    /// Actualiza las estadísticas
+    fn update_stats(&mut self) {
+        self.stats.request_verbs_count = self.request_verbs.len();
+        self.stats.action_verbs_count = self.action_verbs.len();
+        self.stats.conjugations_count = self.conjugations.len();
+    }
+
+    /// Verifica si una palabra es válida (está en el diccionario)
+    pub fn is_valid_word(&self, word: &str) -> bool {
+        self.valid_words.contains(word) ||
+        self.request_verbs.contains_key(word) ||
+        self.action_verbs.contains_key(word)
+    }
+
+    /// Obtiene la frecuencia de una palabra
+    pub fn word_frequency(&self, word: &str) -> u64 {
+        self.frequencies.get(word).copied().unwrap_or(0)
+    }
+
+    /// Verifica si una palabra es un sustantivo conocido
+    pub fn is_noun(&self, word: &str) -> bool {
+        self.known_nouns.contains(word)
     }
 
     /// Carga el vocabulario de verbos y patrones
